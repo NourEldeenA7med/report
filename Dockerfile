@@ -1,33 +1,28 @@
-\
-# ---- Base Python image ----
-FROM python:3.11-slim
+# Use Debian 12 (bookworm) so the MS repo matches
+FROM python:3.11-slim-bookworm
 
-# ---- System deps for MS ODBC + build tools ----
-ENV ACCEPT_EULA=Y
+ENV ACCEPT_EULA=Y \
+    PYTHONUNBUFFERED=1 \
+    PORT=8080
+
+# Install deps + add Microsoft repo WITHOUT apt-key
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        curl gnupg apt-transport-https unixodbc unixodbc-dev build-essential && \
-    curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
-    curl https://packages.microsoft.com/config/debian/12/prod.list > /etc/apt/sources.list.d/microsoft-prod.list && \
+        curl ca-certificates gnupg2 apt-transport-https \
+        unixodbc unixodbc-dev build-essential && \
+    mkdir -p /usr/share/keyrings && \
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+      | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg && \
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" \
+      > /etc/apt/sources.list.d/microsoft-prod.list && \
     apt-get update && \
-    # MS SQL ODBC Driver 18
     apt-get install -y --no-install-recommends msodbcsql18 && \
-    # Cleanup
     rm -rf /var/lib/apt/lists/*
 
-# ---- App dir ----
 WORKDIR /app
-
-# ---- Python deps ----
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-
-# ---- Copy app ----
 COPY . .
 
-# ---- Streamlit config ----
-ENV PYTHONUNBUFFERED=1
-ENV PORT=8080
-
-# Streamlit needs to listen on 0.0.0.0 and Railway's $PORT
+# Streamlit must bind to 0.0.0.0:$PORT on hosts like Railway/Render/Fly/Cloud Run
 CMD ["bash", "-lc", "streamlit run app.py --server.address 0.0.0.0 --server.port ${PORT}"]
